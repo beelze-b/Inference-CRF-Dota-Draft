@@ -7,9 +7,9 @@ import numpy as np
 import argparse
 
 def get_X_features(X_no_features_df, most_popular_heroes, popularityDict, hero_win_percentage,
-                   use_popularity = False, use_map = False, default_value = -1):
+                   filtered_matches, use_popularity = False, use_map = False, default_value = -1):
     X_features = []
-    for x in X_no_features_df:
+    for index, x in enumerate(X_no_features_df):
         X_feature = []
         for hero in x:
             win_rate = []
@@ -26,7 +26,9 @@ def get_X_features(X_no_features_df, most_popular_heroes, popularityDict, hero_w
             if use_popularity:
                 for hero in x:
                     popularity = features.append(popularityDict[hero])
-      
+            #if radiant won, then enemy team was dire (0)
+            #othrwise radiant lost, and enemy team was radiant
+            features.append( int(filtered_matches[0]['didRadiantWin'] == False) )
             X_feature.append(features)
         X_features.append(X_feature)
 
@@ -113,10 +115,12 @@ def main(usePopularity, useMap, defaultValue):
     with open('data/Y_df.pkl', 'rb') as f:
         Y_df = pickle.load(f)
 
+    with open('data/filtered_matches.pkl', 'rb') as f:
+        filtered_matches = pickle.load(f)
 
     #featurize
     X_features = get_X_features(X_no_features_df, most_popular_heroes, popularityDict,
-                                hero_win_percentage,
+                                hero_win_percentage, filtered_matches,
                                 use_popularity = usePopularity, 
                                 use_map = useMap, 
                                 default_value = defaultValue)
@@ -134,19 +138,28 @@ def main(usePopularity, useMap, defaultValue):
     crf = EdgeFeatureGraphCRF(inference_method=inference)
     ssvm = OneSlackSSVM(crf, inference_cache=50, C=.1, tol=.1, max_iter=100,
                         n_jobs=1)
-    ssvm.fit(X_train_edge_features[:500], np.array( Y[:500]) )
+
+    X_train = X_train_edge_features[:500]
+    Y_train = Y[:500]
+    X_test = X_train_edge_features[500:1000]
+    Y_test = Y[500:1000]
+
+    ssvm.fit(X_train, np.array( Y_train ))
 
     #evaluate
-    Y_train_pred = ssvm.predict(X_train_edge_features[:500])
+    Y_train_pred = ssvm.predict(X_train)
     
-    accuracy = lambda Y_predicted, Y_actual: np.average([sum(Y_predicted[i] == Y_actual[i])/5 for i in range(len(Y_predicted))])
-    print("Train accuracy: ", accuractrain_y(Y_pred, Y[:500]))
+    accuracy = lambda Y_predicted, Y_actual: np.average([sum(Y_predicted[i] == Y_actual[i])/5 \
+                                                         for i in range(len(Y_predicted))])
+    print("Train accuracy: ", accuracy(Y_train_pred, Y_train))
 
-    Y_test_pred = ssvm.predict(X_train_edge_features[500:1000])
-    print("Test accuracy: ", accuracy(Y_test_pred, Y[500:1000]))
+    Y_test_pred = ssvm.predict(X_test)
+    print("Test accuracy: ", accuracy(Y_test_pred, Y_test))
 
-    trainFilename = "data/Y_train_predictions_popularity_" + usePopularity + "_default_" + str(default_value) + ".pkl"
-    testFilename = "data/Y_test_predictions_popularity_" + usePopularity + "_default_" + str(default_value) + ".pkl"
+    trainFilename = "data/Y_train_predictions_popularity_" + str(usePopularity) \
+                    + "_default_" + str(defaultValue) + ".pkl"
+    testFilename = "data/Y_test_predictions_popularity_" + str(usePopularity) \
+                   + "_default_" + str(defaultValue) + ".pkl"
     
     with open(trainFilename, 'wb') as f:
         pickle.dump(Y_train_pred, f)
@@ -155,7 +168,7 @@ def main(usePopularity, useMap, defaultValue):
         pickle.dump(Y_test_pred, f)
 
 if __name__ == '__main__':
-    usePopularity = True
+    usePopularity = False
     useMap = False
     defaultValue = 0
 
